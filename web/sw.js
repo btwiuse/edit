@@ -63,17 +63,18 @@ self.addEventListener("fetch", (event) => {
       // Not in cache – fetch from network and cache the response.
       return fetch(event.request)
         .then((response) => {
-          // Only cache successful, non-opaque responses.
-          if (
-            response.ok ||
-            (response.type === "opaque" && response.status === 0)
-          ) {
+          // Cache successful same-origin responses and opaque cross-origin
+          // responses (CDN resources such as xterm.js).
+          if (response.ok || response.type === "opaque") {
             const clone = response.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
           }
           return response;
         })
-        .catch(() => cached); // Return cached copy if network fails.
+        .catch((err) => {
+          // Network failed and there is no cached copy – propagate the error.
+          throw err;
+        });
     })
   );
 });
