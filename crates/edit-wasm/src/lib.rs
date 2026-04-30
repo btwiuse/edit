@@ -208,6 +208,25 @@ fn step_internal(input: &str) -> String {
                 draw(&mut ctx, &mut ed.state);
                 more
             } {}
+
+            // In WASM, xterm.js always sends complete escape sequences in a
+            // single `editor_step` call.  A lone ESC byte therefore always
+            // means the user literally pressed the Escape key — never the
+            // prefix of an Alt+key sequence.  If the VT parser is left in its
+            // pending-ESC state (read_timeout < MAX) after the loop above, flush
+            // it immediately by parsing an empty string so it emits
+            // `Token::Esc('\0')` → `vk::ESCAPE`.
+            if !vt_input.is_empty() && ed.vt_parser.read_timeout() < Duration::MAX {
+                let vt_iter = ed.vt_parser.parse("");
+                let mut input_iter = ed.input_parser.parse(vt_iter);
+                while {
+                    let event = input_iter.next();
+                    let more = event.is_some();
+                    let mut ctx = ed.tui.create_context(event);
+                    draw(&mut ctx, &mut ed.state);
+                    more
+                } {}
+            }
         }
 
         // Settle the layout (may take more than one pass).
