@@ -20,6 +20,7 @@ enum TargetOs {
 fn main() {
     stdext::arena::init(128 * 1024 * 1024).unwrap();
 
+    let target_arch = env_opt("CARGO_CFG_TARGET_ARCH");
     let target_os = match env_opt("CARGO_CFG_TARGET_OS").as_str() {
         "windows" => TargetOs::Windows,
         "macos" | "ios" => TargetOs::MacOS,
@@ -28,7 +29,23 @@ fn main() {
 
     compile_lsh();
     compile_i18n();
-    configure_icu(target_os);
+    // ICU dynamic loading is not supported on WASM; skip the configuration
+    // entirely so that `edit_icu_renaming_auto_detect` is never set for that
+    // target (which would otherwise cause compile errors because the renaming
+    // helper functions are not available in sys/wasm.rs).
+    if target_arch != "wasm32" {
+        configure_icu(target_os);
+    } else {
+        // Still emit the check-cfg declaration so rustc doesn't warn about an
+        // unexpected cfg value in icu.rs.
+        println!("cargo::rustc-check-cfg=cfg(edit_icu_renaming_auto_detect)");
+        // Provide dummy env values so that any conditional code that references
+        // these env vars compiles without error.
+        println!("cargo::rustc-env=EDIT_CFG_ICUUC_SONAME=");
+        println!("cargo::rustc-env=EDIT_CFG_ICUI18N_SONAME=");
+        println!("cargo::rustc-env=EDIT_CFG_ICU_EXPORT_PREFIX=");
+        println!("cargo::rustc-env=EDIT_CFG_ICU_EXPORT_SUFFIX=");
+    }
     #[cfg(windows)]
     configure_windows_binary(target_os);
 }

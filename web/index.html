@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) Microsoft Corporation.
+  Licensed under the MIT License.
+
+  Browser front-end for the Edit terminal editor compiled to WebAssembly.
+
+  Build the WASM package first:
+    cargo install wasm-pack
+    wasm-pack build crates/edit-wasm --target web --out-dir ../../web/pkg
+
+  Then serve this directory with any static HTTP server, e.g.:
+    npx serve web/
+    python3 -m http.server --directory web/ 8080
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Edit – Browser</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: #1e1e1e;
+      overflow: hidden;
+    }
+
+    #terminal-container {
+      width: 100%;
+      height: 100%;
+      /* xterm.js fills this element */
+    }
+
+    #loading {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #1e1e1e;
+      color: #ccc;
+      font-family: monospace;
+      font-size: 1rem;
+      z-index: 10;
+      transition: opacity 0.3s;
+    }
+    #loading.hidden { opacity: 0; pointer-events: none; }
+  </style>
+
+  <!-- xterm.js from CDN -->
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/xterm@5/css/xterm.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8/lib/xterm-addon-fit.js"></script>
+</head>
+<body>
+  <div id="loading">Loading editor…</div>
+  <div id="terminal-container"></div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
