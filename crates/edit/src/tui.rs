@@ -149,8 +149,8 @@ use std::{io, iter, mem, ptr, time};
 
 // `std::time::Instant::now()` panics on `wasm32-unknown-unknown` because Rust
 // uses the "unsupported" platform PAL for that target.  We provide a minimal
-// stub that compiles and runs without panicking; double-click detection is
-// effectively disabled on WASM (always returns a large elapsed duration).
+// implementation backed by `js_sys::Date::now()` (millisecond precision) so
+// double-click detection works correctly in the browser.
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
@@ -158,19 +158,18 @@ use wasm_instant::Instant;
 #[cfg(target_arch = "wasm32")]
 mod wasm_instant {
     #[derive(Copy, Clone)]
-    pub struct Instant;
+    pub struct Instant(f64); // milliseconds since epoch
     impl Instant {
         #[inline]
         pub fn now() -> Self {
-            Instant
+            Instant(js_sys::Date::now())
         }
     }
     impl std::ops::Sub for Instant {
         type Output = std::time::Duration;
-        fn sub(self, _: Instant) -> std::time::Duration {
-            // Return a duration that is always larger than any threshold used
-            // in the TUI (currently 500 ms for double-click detection).
-            std::time::Duration::MAX
+        fn sub(self, rhs: Instant) -> std::time::Duration {
+            let ms = (self.0 - rhs.0).max(0.0);
+            std::time::Duration::from_millis(ms.round() as u64)
         }
     }
 }
