@@ -12,9 +12,13 @@ use crate::document::{ReadableDocument, WriteableDocument};
 use crate::helpers::*;
 
 #[cfg(target_pointer_width = "32")]
+#[cfg(not(target_arch = "wasm32"))]
 const LARGE_CAPACITY: usize = 128 * MEBI;
 #[cfg(target_pointer_width = "64")]
 const LARGE_CAPACITY: usize = 4 * GIBI;
+// In WASM (wasm32) cap each document at 8 MiB to keep memory usage sane.
+#[cfg(target_arch = "wasm32")]
+const LARGE_CAPACITY: usize = 8 * MEBI;
 const LARGE_ALLOC_CHUNK: usize = 64 * KIBI;
 const LARGE_GAP_CHUNK: usize = 4 * KIBI;
 
