@@ -103,19 +103,26 @@ async function main() {
 
   // ── wire up resize ────────────────────────────────────────────────────────
 
-  const resizeObserver = new ResizeObserver(() => {
+  /** Debounce helper – calls `fn` at most once per `delay` ms. */
+  function debounce(fn, delay) {
+    let timer = null;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), delay);
+    };
+  }
+
+  const handleResize = debounce(() => {
     fitAddon.fit();
     const output = editor_resize(term.cols, term.rows);
     writeOutput(term, output);
-  });
+  }, 100);
+
+  const resizeObserver = new ResizeObserver(handleResize);
   resizeObserver.observe(containerEl);
 
   // Also handle explicit window resize events as a fallback.
-  window.addEventListener("resize", () => {
-    fitAddon.fit();
-    const output = editor_resize(term.cols, term.rows);
-    writeOutput(term, output);
-  });
+  window.addEventListener("resize", handleResize);
 }
 
 main().catch((err) => {

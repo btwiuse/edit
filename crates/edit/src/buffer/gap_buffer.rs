@@ -11,8 +11,7 @@ use stdext::{ReplaceRange as _, slice_copy_safe};
 use crate::document::{ReadableDocument, WriteableDocument};
 use crate::helpers::*;
 
-#[cfg(target_pointer_width = "32")]
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(target_pointer_width = "32", not(target_arch = "wasm32")))]
 const LARGE_CAPACITY: usize = 128 * MEBI;
 #[cfg(target_pointer_width = "64")]
 const LARGE_CAPACITY: usize = 4 * GIBI;
