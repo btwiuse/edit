@@ -113,6 +113,9 @@ pub fn editor_init(cols: u32, rows: u32) -> String {
             st.add_error(err);
         }
 
+        // Open an untitled document by default, matching CLI startup behavior.
+        let _ = st.documents.add_untitled();
+
         let vt_parser = vt::Parser::new();
         let input_parser = input::Parser::new();
         let tui = Tui::new().expect("failed to create Tui");
