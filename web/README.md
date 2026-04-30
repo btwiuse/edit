@@ -30,29 +30,41 @@ keyboard/mouse
 ### Prerequisites
 
 ```sh
-# Install Rust (https://rustup.rs) then add the WASM target:
-rustup target add wasm32-unknown-unknown
-
-# Install wasm-pack:
-cargo install wasm-pack
-
-# Install a simple HTTP server (any will do):
-npm install -g serve
-# or: pip install --user httpserver
+# Install Rust via https://rustup.rs
+# The repo ships a rust-toolchain.toml that pins the correct nightly channel
+# and adds the wasm32-unknown-unknown target automatically.
+rustup show   # triggers toolchain + target installation on first run
 ```
 
 ### Build the WASM package
 
-Run from the repository root:
+A helper script handles everything (installs `wasm-pack` if needed, runs the
+build):
 
 ```sh
+# from the repository root – release build (default):
+./scripts/build-wasm.sh
+
+# debug/development build (faster compile, larger .wasm):
+./scripts/build-wasm.sh --dev
+```
+
+This compiles the editor to `web/pkg/edit_wasm.js` + `web/pkg/edit_wasm_bg.wasm`.
+
+<details>
+<summary>Manual build command (without the script)</summary>
+
+```sh
+# Install wasm-pack once:
+cargo install wasm-pack
+
 wasm-pack build crates/edit-wasm \
+  --release \
   --target web \
   --out-dir ../../web/pkg \
   -- --no-default-features
 ```
-
-This compiles the editor to `web/pkg/edit_wasm.js` + `web/pkg/edit_wasm_bg.wasm`.
+</details>
 
 ### Serve
 
