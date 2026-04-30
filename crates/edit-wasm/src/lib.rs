@@ -40,6 +40,8 @@ mod state;
 
 use std::borrow::Cow;
 use std::cell::RefCell;
+use std::io;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use draw_editor::*;
@@ -58,6 +60,8 @@ use stdext::arena::{self, Arena, scratch_arena};
 use stdext::arena_format;
 use stdext::collections::BString;
 use wasm_bindgen::prelude::*;
+
+mod vfs;
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -276,10 +280,10 @@ fn draw(ctx: &mut Context, st: &mut state::State) {
         draw_goto_menu(ctx, st);
     }
     if st.wants_file_picker != StateFilePicker::None {
-        draw_file_picker(ctx, st);
+        wasm_draw_file_picker(ctx, st);
     }
     if st.wants_save {
-        draw_handle_save(ctx, st);
+        wasm_draw_handle_save(ctx, st);
     }
     if st.wants_language_picker {
         draw_dialog_language_change(ctx, st);
@@ -491,5 +495,267 @@ fn sanitize_control_chars(text: &str) -> Cow<'_, str> {
         Cow::Owned(sanitized)
     } else {
         Cow::Borrowed(text)
+    }
+}
+
+// ── WASM-specific file I/O (localStorage virtual filesystem) ─────────────────
+
+/// File-picker modal for the WASM build.
+///
+/// Replaces the native [`draw_file_picker`] which relies on `std::fs`.
+/// Instead of navigating the host filesystem, this shows a flat list of files
+/// stored in `localStorage` via the [`vfs`] module.
+fn wasm_draw_file_picker(ctx: &mut Context, state: &mut State) {
+    // Pre-fill the filename for SaveAs on first entry.
+    if state.wants_file_picker == StateFilePicker::SaveAs {
+        state.wants_file_picker = StateFilePicker::SaveAsShown;
+        if state.file_picker_pending_name.as_os_str().is_empty() {
+            state.file_picker_pending_name = state
+                .documents
+                .active()
+                .map_or("Untitled.txt", |doc| doc.filename.as_str())
+                .into();
+        }
+    }
+
+    // Populate the file list from localStorage (cached in state).
+    if state.file_picker_entries.is_none() {
+        let file_entries: Vec<DisplayablePathBuf> =
+            vfs::list().iter().map(|f| DisplayablePathBuf::from(f.as_str())).collect();
+        // Slot layout matches the native version: ["..", dirs, files].
+        // VFS is a flat namespace, so only the files slot is used.
+        state.file_picker_entries = Some([Vec::new(), Vec::new(), file_entries]);
+    }
+
+    let width = (ctx.size().width - 20).max(10);
+    let height = (ctx.size().height - 10).max(10);
+    let is_open = state.wants_file_picker == StateFilePicker::Open;
+    let mut activated_name: Option<String> = None;
+    let mut done = false;
+
+    ctx.modal_begin(
+        "file-picker",
+        if is_open { loc(LocId::FileOpen) } else { loc(LocId::FileSaveAs) },
+    );
+    ctx.attr_intrinsic_size(Size { width, height });
+    {
+        let mut activated = false;
+
+        // Filename input row (always shown, matches native behaviour).
+        ctx.table_begin("name-row");
+        ctx.table_set_columns(&[0, COORD_TYPE_SAFE_MAX]);
+        ctx.table_set_cell_gap(Size { width: 1, height: 0 });
+        ctx.attr_padding(Rect::two(1, 1));
+        ctx.inherit_focus();
+        {
+            ctx.table_next_row();
+            ctx.inherit_focus();
+            ctx.label("name-label", loc(LocId::SaveAsDialogNameLabel));
+            ctx.editline("name", &mut state.file_picker_pending_name);
+            ctx.inherit_focus();
+            if ctx.is_focused() && ctx.consume_shortcut(vk::RETURN) {
+                activated = true;
+            }
+        }
+        ctx.table_end();
+
+        // Scrollable list of VFS files.
+        ctx.scrollarea_begin(
+            "files",
+            Size {
+                width: 0,
+                height: height - 3, // 1 modal title + 1 name row + 1 padding
+            },
+        );
+        ctx.attr_background_rgba(ctx.indexed_alpha(IndexedColor::Black, 1, 4));
+        {
+            ctx.list_begin("list");
+            ctx.inherit_focus();
+            if let Some(entries) = &state.file_picker_entries {
+                for entry in &entries[2] {
+                    match ctx.list_item(false, entry.as_str()) {
+                        ListSelection::Unchanged => {}
+                        ListSelection::Selected => {
+                            state.file_picker_pending_name = entry.as_path().into();
+                        }
+                        ListSelection::Activated => activated = true,
+                    }
+                    ctx.attr_overflow(Overflow::TruncateTail);
+                }
+            }
+            ctx.list_end();
+        }
+        ctx.scrollarea_end();
+
+        if activated {
+            let name = state.file_picker_pending_name.to_string_lossy().into_owned();
+            if !name.is_empty() {
+                // Show an overwrite warning if saving to an existing VFS file.
+                if !is_open
+                    && vfs::exists(&name)
+                    && state.file_picker_overwrite_warning.is_none()
+                {
+                    state.file_picker_overwrite_warning =
+                        Some(state.file_picker_pending_name.clone());
+                } else {
+                    activated_name = Some(name);
+                }
+            }
+        }
+    }
+    if ctx.modal_end() {
+        done = true;
+    }
+
+    // Overwrite-confirmation dialog (mirrors the native implementation).
+    if state.file_picker_overwrite_warning.is_some() {
+        let mut save = false;
+
+        ctx.modal_begin("overwrite", loc(LocId::FileOverwriteWarning));
+        ctx.attr_background_rgba(ctx.indexed(IndexedColor::Red));
+        ctx.attr_foreground_rgba(ctx.indexed(IndexedColor::BrightWhite));
+        {
+            let contains_focus = ctx.contains_focus();
+            ctx.label("description", loc(LocId::FileOverwriteWarningDescription));
+            ctx.attr_overflow(Overflow::TruncateTail);
+            ctx.attr_padding(Rect::three(1, 2, 1));
+
+            ctx.table_begin("choices");
+            ctx.inherit_focus();
+            ctx.attr_padding(Rect::three(0, 2, 1));
+            ctx.attr_position(Position::Center);
+            ctx.table_set_cell_gap(Size { width: 2, height: 0 });
+            {
+                ctx.table_next_row();
+                ctx.inherit_focus();
+                save = ctx.button("yes", loc(LocId::Yes), ButtonStyle::default());
+                ctx.inherit_focus();
+                if ctx.button("no", loc(LocId::No), ButtonStyle::default()) {
+                    state.file_picker_overwrite_warning = None;
+                }
+            }
+            ctx.table_end();
+
+            if contains_focus {
+                save |= ctx.consume_shortcut(vk::Y);
+                if ctx.consume_shortcut(vk::N) {
+                    state.file_picker_overwrite_warning = None;
+                }
+            }
+        }
+        if ctx.modal_end() {
+            state.file_picker_overwrite_warning = None;
+        }
+
+        if save {
+            if let Some(path) = state.file_picker_overwrite_warning.take() {
+                activated_name = Some(path.to_string_lossy().into_owned());
+            }
+        }
+    }
+
+    // Execute the open/save action.
+    if let Some(name) = activated_name {
+        let res = if is_open { wasm_open_file(state, &name) } else { wasm_save_file_as(state, &name) };
+        match res {
+            Ok(()) => {
+                ctx.needs_rerender();
+                done = true;
+            }
+            Err(err) => error_log_add(ctx, state, err),
+        }
+    }
+
+    if done {
+        state.wants_file_picker = StateFilePicker::None;
+        state.file_picker_pending_name = Default::default();
+        state.file_picker_entries = None;
+        state.file_picker_overwrite_warning = None;
+        state.file_picker_autocomplete = Default::default();
+    }
+}
+
+/// Save handler for the WASM build.
+///
+/// Replaces the native [`draw_handle_save`] which calls `File::create`.
+/// Writes the active document's content to `localStorage` via [`vfs::write`].
+fn wasm_draw_handle_save(ctx: &mut Context, state: &mut State) {
+    if let Some(doc) = state.documents.active_mut() {
+        let path = doc.path.clone();
+        if let Some(p) = path {
+            let filename = p.to_string_lossy().into_owned();
+            let mut content = String::new();
+            doc.buffer.borrow_mut().save_as_string(&mut content);
+            if !vfs::write(&filename, &content) {
+                // save_as_string marks the buffer clean; undo that on failure.
+                doc.buffer.borrow_mut().mark_as_dirty();
+                error_log_add(
+                    ctx,
+                    state,
+                    apperr::Error::Io(io::Error::new(
+                        io::ErrorKind::Other,
+                        "Failed to save to browser storage",
+                    )),
+                );
+            }
+        } else {
+            // No path yet: open the Save As dialog.
+            state.wants_file_picker = StateFilePicker::SaveAs;
+            state.wants_save = false;
+            ctx.needs_rerender();
+        }
+    }
+    state.wants_save = false;
+}
+
+/// Open a file from the VFS and make it the active document.
+fn wasm_open_file(state: &mut State, filename: &str) -> apperr::Result<()> {
+    // Replace a pristine, path-less Untitled document rather than stacking.
+    if let Some(active) = state.documents.active()
+        && active.path.is_none()
+        && active.file_id.is_none()
+        && !active.buffer.borrow().is_dirty()
+    {
+        state.documents.remove_active();
+    }
+
+    let doc = state.documents.add_untitled()?;
+
+    // Load content from VFS (empty document if the file doesn't exist yet,
+    // mirroring the native behaviour for new files).
+    if let Some(content) = vfs::read(filename) {
+        doc.buffer.borrow_mut().copy_from_str(&content);
+    }
+
+    doc.path = Some(PathBuf::from(filename));
+    doc.dir = None;
+    doc.filename = filename.to_string();
+    doc.file_id = None;
+    doc.auto_detect_language();
+
+    Ok(())
+}
+
+/// Save the active document to the VFS under `filename` (Save As).
+fn wasm_save_file_as(state: &mut State, filename: &str) -> apperr::Result<()> {
+    let Some(doc) = state.documents.active_mut() else {
+        return Ok(());
+    };
+    let mut content = String::new();
+    doc.buffer.borrow_mut().save_as_string(&mut content);
+    if vfs::write(filename, &content) {
+        doc.path = Some(PathBuf::from(filename));
+        doc.dir = None;
+        doc.filename = filename.to_string();
+        doc.file_id = None;
+        doc.auto_detect_language();
+        Ok(())
+    } else {
+        // Undo the clean mark from save_as_string.
+        doc.buffer.borrow_mut().mark_as_dirty();
+        Err(apperr::Error::Io(io::Error::new(
+            io::ErrorKind::Other,
+            "Failed to save to browser storage",
+        )))
     }
 }
