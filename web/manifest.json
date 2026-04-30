@@ -1,0 +1,17 @@
+{
+  "name": "Edit – Browser",
+  "short_name": "Edit",
+  "description": "A terminal text editor running in the browser via WebAssembly",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#1e1e1e",
+  "theme_color": "#1e1e1e",
+  "icons": [
+    {
+      "src": "icons/edit.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
