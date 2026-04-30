@@ -62,8 +62,9 @@ use wasm_bindgen::prelude::*;
 // ── constants ────────────────────────────────────────────────────────────────
 
 /// Scratch arena size for WASM – much smaller than the native 128/512 MiB to
-/// keep browser memory usage reasonable.
-const SCRATCH_ARENA_CAPACITY: usize = 16 * MEBI;
+/// keep browser memory usage reasonable.  The two scratch arenas each get this
+/// many bytes committed immediately (our WASM `virtual_reserve` is eager).
+const SCRATCH_ARENA_CAPACITY: usize = 4 * MEBI;
 /// Clipboard size threshold (same definition as in the native main.rs).
 const LARGE_CLIPBOARD_THRESHOLD: usize = 128 * KIBI;
 

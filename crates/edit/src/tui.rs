@@ -147,6 +147,42 @@
 use std::collections::HashSet;
 use std::{io, iter, mem, ptr, time};
 
+// `std::time::Instant::now()` panics on `wasm32-unknown-unknown` because Rust
+// uses the "unsupported" platform PAL for that target.  We provide a minimal
+// stub that compiles and runs without panicking; double-click detection is
+// effectively disabled on WASM (always returns a large elapsed duration).
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+use wasm_instant::Instant;
+#[cfg(target_arch = "wasm32")]
+mod wasm_instant {
+    #[derive(Copy, Clone)]
+    pub struct Instant;
+    impl Instant {
+        #[inline]
+        pub fn now() -> Self {
+            Instant
+        }
+    }
+    impl std::ops::Sub for Instant {
+        type Output = std::time::Duration;
+        fn sub(self, _: Instant) -> std::time::Duration {
+            // Return a duration that is always larger than any threshold used
+            // in the TUI (currently 500 ms for double-click detection).
+            std::time::Duration::MAX
+        }
+    }
+}
+
+// On WASM our `virtual_reserve` immediately commits the full allocation
+// (there is no lazy OS paging).  Use a smaller arena to keep the initial
+// memory footprint of the TUI within a few MiB.
+#[cfg(not(target_arch = "wasm32"))]
+const TUI_ARENA_CAPACITY: usize = 128 * MEBI;
+#[cfg(target_arch = "wasm32")]
+const TUI_ARENA_CAPACITY: usize = 8 * MEBI;
+
 use stdext::arena::{Arena, scratch_arena};
 use stdext::collections::{BString, BVec};
 use stdext::{ReplaceRange, arena_format, arena_write_fmt, opt_ptr_eq, str_from_raw_parts};
@@ -338,7 +374,7 @@ pub struct Tui {
     left_mouse_down_target: u64,
     /// Timestamp of the last mouse up event.
     /// Used for tracking double/triple clicks.
-    mouse_up_timestamp: std::time::Instant,
+    mouse_up_timestamp: Instant,
     /// The current mouse state.
     mouse_state: InputMouseState,
     /// Whether the mouse is currently being dragged.
@@ -377,8 +413,8 @@ pub struct Tui {
 impl Tui {
     /// Creates a new [`Tui`] instance for storing state across frames.
     pub fn new() -> io::Result<Self> {
-        let arena_prev = Arena::new(128 * MEBI)?;
-        let arena_next = Arena::new(128 * MEBI)?;
+        let arena_prev = Arena::new(TUI_ARENA_CAPACITY)?;
+        let arena_next = Arena::new(TUI_ARENA_CAPACITY)?;
         // SAFETY: Since `prev_tree` refers to `arena_prev`/`arena_next`, from its POV the lifetime
         // is `'static`, requiring us to use `transmute` to circumvent the borrow checker.
         let prev_tree = Tree::new(unsafe { mem::transmute::<&Arena, &Arena>(&arena_next) });
@@ -404,7 +440,7 @@ impl Tui {
             mouse_position: Point::MIN,
             mouse_down_position: Point::MIN,
             left_mouse_down_target: 0,
-            mouse_up_timestamp: std::time::Instant::now(),
+            mouse_up_timestamp: Instant::now(),
             mouse_state: InputMouseState::None,
             mouse_is_drag: false,
             mouse_click_counter: 0,
@@ -528,7 +564,7 @@ impl Tui {
             self.mouse_is_drag = false;
         }
 
-        let now = std::time::Instant::now();
+        let now = Instant::now();
         let mut input_text = None;
         let mut input_keyboard = None;
         let mut input_mouse_modifiers = kbmod::NONE;
