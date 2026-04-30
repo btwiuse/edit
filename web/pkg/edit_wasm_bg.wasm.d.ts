@@ -1,6 +1,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const editor_exited: () => number;
 export const editor_init: (a: number, b: number, c: number) => void;
 export const editor_resize: (a: number, b: number, c: number) => void;
 export const editor_step: (a: number, b: number, c: number) => void;

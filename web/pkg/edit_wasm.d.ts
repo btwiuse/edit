@@ -2,6 +2,14 @@
 /* eslint-disable */
 
 /**
+ * Returns `true` if the editor has exited (the user chose Exit/Quit).
+ *
+ * Once this returns `true` the caller should stop feeding input to the editor
+ * and reload the WASM module to restart.
+ */
+export function editor_exited(): boolean;
+
+/**
  * Initialise the editor for a terminal with the given dimensions.
  *
  * Must be called exactly once before any other function.
@@ -27,6 +35,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly editor_exited: () => number;
     readonly editor_init: (a: number, b: number, c: number) => void;
     readonly editor_resize: (a: number, b: number, c: number) => void;
     readonly editor_step: (a: number, b: number, c: number) => void;

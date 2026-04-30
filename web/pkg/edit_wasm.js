@@ -1,6 +1,18 @@
 /* @ts-self-types="./edit_wasm.d.ts" */
 
 /**
+ * Returns `true` if the editor has exited (the user chose Exit/Quit).
+ *
+ * Once this returns `true` the caller should stop feeding input to the editor
+ * and reload the WASM module to restart.
+ * @returns {boolean}
+ */
+export function editor_exited() {
+    const ret = wasm.editor_exited();
+    return ret !== 0;
+}
+
+/**
  * Initialise the editor for a terminal with the given dimensions.
  *
  * Must be called exactly once before any other function.
