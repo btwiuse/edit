@@ -171,6 +171,15 @@ pub fn editor_step(input: &str) -> String {
     step_internal(input)
 }
 
+/// Returns `true` if the editor has exited (the user chose Exit/Quit).
+///
+/// Once this returns `true` the caller should stop feeding input to the editor
+/// and reload the WASM module to restart.
+#[wasm_bindgen]
+pub fn editor_exited() -> bool {
+    EDITOR.with(|cell| cell.borrow().as_ref().map_or(false, |ed| ed.state.exit))
+}
+
 /// Notify the editor that the terminal has been resized.
 ///
 /// Returns VT bytes to write to xterm.js.

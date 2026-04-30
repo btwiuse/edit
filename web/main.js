@@ -12,7 +12,7 @@
  * Then serve the web/ directory with any static HTTP server.
  */
 
-import init, { editor_init, editor_step, editor_resize } from "./pkg/edit_wasm.js";
+import init, { editor_init, editor_step, editor_resize, editor_exited } from "./pkg/edit_wasm.js";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -87,18 +87,39 @@ async function main() {
 
   // ── wire up input ──────────────────────────────────────────────────────────
 
-  // xterm.js gives us raw VT bytes for every key press / mouse event / paste.
-  term.onData((data) => {
+  /** Whether the editor has exited; gate all input after this point. */
+  let exited = false;
+
+  /** Feed one chunk of VT input to the editor; detect exit on every step. */
+  function step(data) {
+    if (exited) return;
     const output = editor_step(data);
     writeOutput(term, output);
+    if (editor_exited()) {
+      exited = true;
+      // Show a restart prompt on a new line below the cleaned-up screen.
+      term.write("\r\n\r\nPress any key to continue...");
+    }
+  }
+
+  // xterm.js gives us raw VT bytes for every key press / mouse event / paste.
+  term.onData((data) => {
+    if (exited) {
+      location.reload();
+      return;
+    }
+    step(data);
   });
 
   // Mouse reporting: xterm.js emits VT mouse sequences on its own when the
   // editor enables the mouse tracking modes (sent during editor_init).
   // We re-enable mouse support in xterm after the editor's setup sequence.
   term.onBinary((data) => {
-    const output = editor_step(data);
-    writeOutput(term, output);
+    if (exited) {
+      location.reload();
+      return;
+    }
+    step(data);
   });
 
   // ── wire up resize ────────────────────────────────────────────────────────
